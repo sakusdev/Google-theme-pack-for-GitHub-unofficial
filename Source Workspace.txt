@@ -1,0 +1,509 @@
+// ==UserScript==
+// @name         Google Source Workspace (De-Microsoft GitHub V3.1)
+// @namespace    http://tampermonkey.net/
+// @version      3.1.0
+// @description  コード行のカプセル化バグを修正 ＆ Symbolsパネル・エディタ統合対応版
+// @author       You
+// @match        https://github.com/*
+// @grant        GM_addStyle
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    const css = `
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Sans+Mono:wght@400;500;600&family=Noto+Sans:wght@400;500;600;700&display=swap');
+
+        /* =========================================================
+           0. フォント完全強制エンジン (Noto Sans / Noto Sans Mono)
+           ========================================================= */
+        :root, body, [data-color-mode] {
+            --fontStack-sansSerif: 'Noto Sans', 'Noto Sans JP', sans-serif !important;
+            --fontStack-system: 'Noto Sans', 'Noto Sans JP', sans-serif !important;
+            --fontStack-monospace: 'Noto Sans Mono', 'Noto Sans JP', monospace !important;
+        }
+
+        *, *::before, *::after {
+            font-family: 'Noto Sans', 'Noto Sans JP', sans-serif !important;
+        }
+
+        code, pre, tt, kbd, samp,
+        .blob-code, .blob-code-inner, .blob-num,
+        .commit-tease-sha, .text-mono,
+        [class*="monospace"], [class*="CommitId"],
+        a[href*="/commit/"], .react-code-text, .react-line-number,
+        .react-code-file-contents, .react-code-lines, .react-code-lines *,
+        .pl-s, .pl-k, .pl-en, .pl-c, .pl-smi, .pl-c1, .pl-v, .pl-e, .pl-ent,
+        textarea[name="value"], #read-only-cursor-text-area {
+            font-family: 'Noto Sans Mono', 'Noto Sans JP', monospace !important;
+            font-variant-ligatures: none !important;
+        }
+
+        /* =========================================================
+           1. Material 3 カラートークン & シンタックス変数
+           ========================================================= */
+        :root,
+        [data-color-mode="light"][data-light-theme*="light"] {
+            --m3-bg-base: #f0f4f9;
+            --m3-surface: #ffffff;
+            --m3-surface-container: #f8fafd;
+            --m3-surface-container-high: #eef3f8;
+            --m3-surface-hover: #e8eef7;
+            --m3-primary: #0b57d0;
+            --m3-primary-hover: #0842a0;
+            --m3-primary-container: #c2e7ff;
+            --m3-on-primary-container: #001d35;
+            --m3-text-main: #1f1f1f;
+            --m3-text-sub: #444746;
+            --m3-outline: #e1e3e1;
+            --m3-shadow-elevation-1: 0 1px 2px 0 rgba(60,64,67,0.2), 0 1px 3px 1px rgba(60,64,67,0.1);
+            --m3-shadow-elevation-2: 0 4px 8px 3px rgba(60,64,67,0.15), 0 1px 3px rgba(60,64,67,0.3);
+
+            --ide-bg: #f8fafd;
+            --ide-gutter: #f0f4f9;
+            --ide-keyword: #d73a49;
+            --ide-fn: #6f42c1;
+            --ide-string: #067d17;
+            --ide-number: #1750eb;
+            --ide-const: #871094;
+            --ide-comment: #8c8c8c;
+            --ide-type: #00627a;
+
+            --bgColor-default: var(--m3-surface) !important;
+            --bgColor-muted: var(--m3-surface-container) !important;
+            --bgColor-inset: var(--m3-bg-base) !important;
+            --fgColor-default: var(--m3-text-main) !important;
+            --fgColor-muted: var(--m3-text-sub) !important;
+            --fgColor-accent: var(--m3-primary) !important;
+            --borderColor-default: transparent !important;
+            --borderColor-muted: var(--m3-outline) !important;
+            --underlineNav-borderColor-active: transparent !important;
+        }
+
+        [data-color-mode="dark"][data-dark-theme*="dark"],
+        [data-color-mode="auto"][data-dark-theme*="dark"] {
+            --m3-bg-base: #131314;
+            --m3-surface: #1e1f20;
+            --m3-surface-container: #282a2c;
+            --m3-surface-container-high: #303234;
+            --m3-surface-hover: #37393b;
+            --m3-primary: #a8c7fa;
+            --m3-primary-hover: #d3e3fd;
+            --m3-primary-container: #004a77;
+            --m3-on-primary-container: #c2e7ff;
+            --m3-text-main: #e3e3e3;
+            --m3-text-sub: #c4c7c5;
+            --m3-outline: #3c4043;
+            --m3-shadow-elevation-1: 0 1px 3px 0 rgba(0,0,0,0.5), 0 2px 6px 2px rgba(0,0,0,0.25);
+            --m3-shadow-elevation-2: 0 6px 10px 4px rgba(0,0,0,0.4), 0 2px 3px rgba(0,0,0,0.6);
+
+            --ide-bg: #191a1c;
+            --ide-gutter: #1e1f22;
+            --ide-keyword: #cc7832;
+            --ide-fn: #ffc66d;
+            --ide-string: #6a8759;
+            --ide-number: #6897bb;
+            --ide-const: #9876aa;
+            --ide-comment: #7a7e85;
+            --ide-type: #a9b7c6;
+
+            --bgColor-default: var(--m3-surface) !important;
+            --bgColor-muted: var(--m3-surface-container) !important;
+            --bgColor-inset: var(--m3-bg-base) !important;
+            --fgColor-default: var(--m3-text-main) !important;
+            --fgColor-muted: var(--m3-text-sub) !important;
+            --fgColor-accent: var(--m3-primary) !important;
+            --borderColor-default: transparent !important;
+            --borderColor-muted: var(--m3-outline) !important;
+            --underlineNav-borderColor-active: transparent !important;
+        }
+
+        /* =========================================================
+           2. Google Workspace キャンバス構造 & ナビゲーション
+           ========================================================= */
+        body, html {
+            background-color: var(--m3-bg-base) !important;
+        }
+
+        .AppHeader, .Header-old, header[role="banner"] {
+            background-color: var(--m3-bg-base) !important;
+            border-bottom: none !important;
+            box-shadow: none !important;
+            padding: 4px 12px !important;
+        }
+        .AppHeader-globalBar, .AppHeader-localBar {
+            background-color: transparent !important;
+            border-bottom: none !important;
+        }
+
+        .application-main > main, #js-repo-pjax-container {
+            background-color: var(--m3-surface) !important;
+            border-radius: 24px !important;
+            margin: 0 16px 24px 16px !important;
+            padding: 20px 24px !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+            min-height: calc(100vh - 120px);
+        }
+
+        .UnderlineNav, [class*="UnderlineNav"], [role="tablist"] {
+            border-bottom: none !important;
+            gap: 4px !important;
+        }
+        .UnderlineNav-item, nav[aria-label="Repository"] a, [class*="UnderlineNav-item"], [role="tablist"] [role="tab"] {
+            border-radius: 9999px !important;
+            padding: 8px 18px !important;
+            font-weight: 500 !important;
+            color: var(--m3-text-sub) !important;
+            border: none !important;
+        }
+        .UnderlineNav-item:hover, nav[aria-label="Repository"] a:hover, [role="tablist"] [role="tab"]:hover {
+            background-color: var(--m3-surface-hover) !important;
+            color: var(--m3-text-main) !important;
+        }
+        .UnderlineNav-item.selected,
+        .UnderlineNav-item[aria-current="page"],
+        nav[aria-label="Repository"] a[aria-current="page"],
+        [role="tablist"] [role="tab"][aria-selected="true"],
+        [class*="tab-nav"] [aria-current="page"] {
+            background-color: var(--m3-primary-container) !important;
+            color: var(--m3-on-primary-container) !important;
+            font-weight: 600 !important;
+            border-radius: 9999px !important;
+            border-bottom: none !important;
+        }
+
+        .UnderlineNav-item::after,
+        nav[aria-label="Repository"] a::after,
+        [role="tablist"] [role="tab"]::after,
+        [class*="UnderlineNav"] *::after {
+            display: none !important;
+            border-bottom: none !important;
+            background: transparent !important;
+        }
+
+        /* =========================================================
+           3. ファイルツリー & 右サイドバー
+           ========================================================= */
+        [class*="LatestCommit"], .Box-header, [data-testid="latest-commit"] {
+            background-color: var(--m3-surface-container-high) !important;
+            border-radius: 16px !important;
+            border: none !important;
+            padding: 12px 18px !important;
+            margin-bottom: 12px !important;
+        }
+
+        table[aria-labelledby="folders-and-files"], .Box {
+            background-color: var(--m3-surface-container) !important;
+            border-radius: 16px !important;
+            padding: 8px !important;
+            border: none !important;
+            border-collapse: separate !important;
+            border-spacing: 0 2px !important;
+        }
+
+        tr.react-directory-row td {
+            border-top: none !important;
+            border-bottom: 1px solid rgba(128,128,128,0.06) !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
+        }
+        tr.react-directory-row:hover td {
+            background-color: var(--m3-surface-hover) !important;
+        }
+        tr.react-directory-row td:first-child {
+            border-top-left-radius: 12px !important;
+            border-bottom-left-radius: 12px !important;
+        }
+        tr.react-directory-row td:last-child {
+            border-top-right-radius: 12px !important;
+            border-bottom-right-radius: 12px !important;
+        }
+
+        .Layout-sidebar {
+            background-color: var(--m3-surface-container) !important;
+            border-radius: 20px !important;
+            padding: 20px !important;
+            height: fit-content !important;
+        }
+        .Layout-sidebar .BorderGrid-cell {
+            border-top: none !important;
+            border-bottom: 1px solid var(--m3-outline) !important;
+            padding-bottom: 20px !important;
+            margin-bottom: 20px !important;
+        }
+        .Layout-sidebar .BorderGrid-cell:last-child {
+            border-bottom: none !important;
+            margin-bottom: 0 !important;
+            padding-bottom: 0 !important;
+        }
+
+        .Progress {
+            height: 10px !important;
+            border-radius: 9999px !important;
+            background-color: var(--m3-surface-hover) !important;
+        }
+
+        /* =========================================================
+           4. Issue / PR 画面の「Google Docs コメントスレッド」化
+           ========================================================= */
+        .TimelineItem::before,
+        .discussion-timeline::before,
+        [class*="Timeline"]::before {
+            display: none !important;
+            background-color: transparent !important;
+            width: 0 !important;
+        }
+
+        .timeline-comment::before,
+        .timeline-comment::after,
+        .timeline-comment-header::before,
+        .timeline-comment-header::after {
+            display: none !important;
+            border: none !important;
+        }
+
+        .timeline-comment,
+        .review-comment,
+        [data-testid="issue-viewer-issue-container"],
+        [class*="CommentBox"],
+        .react-issue-comment {
+            background-color: var(--m3-surface-container) !important;
+            border: 1px solid rgba(128,128,128,0.12) !important;
+            border-radius: 20px !important;
+            box-shadow: var(--m3-shadow-elevation-1) !important;
+            padding: 6px !important;
+            margin-bottom: 16px !important;
+            overflow: hidden !important;
+        }
+
+        .timeline-comment-header,
+        [class*="IssueCommentHeader"] {
+            background-color: transparent !important;
+            border-bottom: none !important;
+            padding: 12px 18px 4px 18px !important;
+        }
+
+        .comment-body,
+        .timeline-comment .markdown-body {
+            background-color: transparent !important;
+            padding: 8px 18px 16px 18px !important;
+        }
+
+        .State, [data-testid="header-state"] {
+            border-radius: 9999px !important;
+            padding: 6px 16px !important;
+            font-weight: 600 !important;
+            border: none !important;
+        }
+        .State--open { background-color: #1e8e3e !important; color: #fff !important; }
+        .State--merged { background-color: #9334e6 !important; color: #fff !important; }
+        .State--closed { background-color: #d93025 !important; color: #fff !important; }
+
+        /* =========================================================
+           5. 【修正版】コードビューア & Symbols パネルのクリーン統合
+           ========================================================= */
+        /* コードビューアの大枠コンテナだけに背景色と角丸を適用 */
+        .react-code-file-contents,
+        .blob-wrapper,
+        .markdown-body pre {
+            background-color: var(--ide-bg) !important;
+            border-radius: 16px !important;
+            border: 1px solid var(--m3-outline) !important;
+            overflow: hidden !important;
+        }
+
+        /* ★重要: コード内部の各行・セルの「ソーセージ化（枠線・角丸暴発）」を完全リセット */
+        .react-code-lines,
+        .react-code-lines div,
+        .react-code-lines span,
+        .react-code-text,
+        .react-line-number,
+        .react-code-line-contents {
+            border-radius: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            background-color: transparent !important;
+        }
+
+        /* 左側の行番号ガター領域 */
+        .react-line-Numbers,
+        .blob-num {
+            background-color: var(--ide-gutter) !important;
+            color: var(--ide-comment) !important;
+            border-right: 1px solid rgba(128,128,128,0.12) !important;
+            user-select: none !important;
+        }
+
+        /* 上部の Code / Blame / Raw ツールバーをカード化 */
+        #repos-sticky-header > div {
+            background-color: var(--m3-surface-container-high) !important;
+            border-radius: 16px !important;
+            border: 1px solid var(--m3-outline) !important;
+            margin-bottom: 8px !important;
+            padding: 4px 12px !important;
+        }
+
+        /* Code / Blame のセグメントボタンをピル型に */
+        [aria-label="File view"] button,
+        [aria-label="File view"] a {
+            border-radius: 9999px !important;
+            border: none !important;
+        }
+        [aria-label="File view"] [aria-current="true"],
+        [aria-label="File view"] [ data-selected="true"] {
+            background-color: var(--m3-primary-container) !important;
+            color: var(--m3-on-primary-container) !important;
+        }
+
+        /* 右側の「Symbols」パネルをMaterial 3カードに改装 */
+        section[aria-labelledby="symbols-header"],
+        #symbols-pane,
+        [data-testid="symbols-sidebar"] {
+            background-color: var(--m3-surface-container) !important;
+            border-radius: 20px !important;
+            border: 1px solid var(--m3-outline) !important;
+            padding: 12px !important;
+            margin-left: 12px !important;
+        }
+
+        /* シンタックスハイライト (Android Studio Darcula / Colab) */
+        .pl-k, .pl-s .pl-v {
+            color: var(--ide-keyword) !important;
+            font-weight: 600 !important;
+        }
+        .pl-en, .pl-e {
+            color: var(--ide-fn) !important;
+        }
+        .pl-s, .pl-pds, .pl-s .pl-pse .pl-s1, .pl-sr {
+            color: var(--ide-string) !important;
+        }
+        .pl-c1, .pl-sv {
+            color: var(--ide-number) !important;
+        }
+        .pl-v, .pl-smi, .pl-ent {
+            color: var(--ide-const) !important;
+        }
+        .pl-c, .pl-c span {
+            color: var(--ide-comment) !important;
+            font-style: italic !important;
+        }
+
+        /* =========================================================
+           6. 検索バー・ボタン・4色アバターリング・FAB
+           ========================================================= */
+        .AppHeader-searchButton, button[data-target="qbsearch-input.inputButton"] {
+            border-radius: 9999px !important;
+            background-color: var(--m3-surface) !important;
+            border: 1px solid var(--m3-outline) !important;
+            height: 40px !important;
+            padding: 0 18px !important;
+        }
+
+        /* コード行内部の要素を巻き込まないよう、ボタンセレクタを厳密化 */
+        .btn, .Button, header button, #repository-container-header button, #repos-sticky-header button {
+            border-radius: 9999px !important;
+        }
+
+        .btn-primary, .Button--primary, button[data-variant="primary"] {
+            background-color: var(--m3-primary) !important;
+            color: var(--m3-on-primary-container) !important;
+            border: none !important;
+            font-weight: 600 !important;
+        }
+
+        img.avatar, [data-testid="github-avatar"], .AppHeader-user img {
+            border-radius: 50% !important;
+            padding: 2px !important;
+            background: conic-gradient(
+                #EA4335 0deg 90deg,
+                #4285F4 90deg 180deg,
+                #34A853 180deg 270deg,
+                #FBBC05 270deg 360deg
+            ) !important;
+        }
+
+        #google-fab-button {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            height: 56px;
+            padding: 0 24px 0 20px;
+            border-radius: 16px;
+            background-color: var(--m3-surface-container-high);
+            color: var(--m3-text-main);
+            box-shadow: var(--m3-shadow-elevation-2);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            z-index: 9999;
+            text-decoration: none;
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.2s;
+            border: 1px solid var(--m3-outline);
+        }
+        #google-fab-button:hover {
+            background-color: var(--m3-surface-hover);
+            transform: translateY(-2px);
+        }
+    `;
+
+    const transformDOM = () => {
+        const octocatSvg = document.querySelector('header svg.octicon-mark-github, .AppHeader-logo svg');
+        if (octocatSvg && !octocatSvg.dataset.googlefied) {
+            const parentLink = octocatSvg.closest('a');
+            if (parentLink) {
+                octocatSvg.dataset.googlefied = 'true';
+                parentLink.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:center; width:34px; height:34px;">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M4.5 12L9.5 17" stroke="#34A853" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M9.5 7L4.5 12" stroke="#4285F4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M14.5 7L19.5 12" stroke="#EA4335" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M19.5 12L14.5 17" stroke="#FBBC05" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                `;
+            }
+        }
+
+        const searchInputText = document.querySelector('#qb-input-query, .AppHeader-searchButton span');
+        if (searchInputText && searchInputText.textContent.includes('Type')) {
+            searchInputText.innerHTML = `<span style="color:var(--m3-text-sub)">Google Source 内を検索</span>`;
+        }
+
+        if (!document.getElementById('google-fab-button')) {
+            const fab = document.createElement('a');
+            fab.id = 'google-fab-button';
+            const pathParts = location.pathname.split('/').filter(Boolean);
+            const isRepo = pathParts.length >= 2 && !['settings', 'orgs', 'users', 'notifications', 'explore'].includes(pathParts[0]);
+            fab.href = isRepo ? `/${pathParts[0]}/${pathParts[1]}/issues/new` : '/new';
+            fab.innerHTML = `
+                <svg width="24" height="24" viewBox="0 0 36 36">
+                    <path fill="#34A853" d="M16 16v14h4V20z"></path>
+                    <path fill="#4285F4" d="M30 16H20l-4 4h14z"></path>
+                    <path fill="#FBBC05" d="M6 16v4h10l4-4z"></path>
+                    <path fill="#EA4335" d="M20 16V6h-4v14z"></path>
+                    <path fill="none" d="M0 0h36v36H0z"></path>
+                </svg>
+                <span>新規作成</span>
+            `;
+            document.body.appendChild(fab);
+        }
+    };
+
+    if (typeof GM_addStyle !== 'undefined') {
+        GM_addStyle(css);
+    } else {
+        const style = document.createElement('style');
+        style.textContent = css;
+        (document.head || document.documentElement).appendChild(style);
+    }
+
+    window.addEventListener('DOMContentLoaded', transformDOM);
+    document.addEventListener('turbo:load', transformDOM);
+    const observer = new MutationObserver(() => transformDOM());
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+})();
